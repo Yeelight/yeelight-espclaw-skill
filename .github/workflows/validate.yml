@@ -1,0 +1,36 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lua-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.4
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Run unit tests
+        run: lua tests/run.lua
+
+  json-and-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON assets
+        run: |
+          for f in skills/yeelight-smart-home/assets/*.json skills/yeelight-smart-home/assets/schemas/*.json; do
+            python3 -m json.tool "$f" > /dev/null || { echo "invalid JSON: $f"; exit 1; }
+          done
+      - name: Check script size limit (64KB)
+        run: |
+          find skills/yeelight-smart-home/scripts -name '*.lua' | while read f; do
+            size=$(stat -c%s "$f")
+            if [ "$size" -gt 65536 ]; then echo "too large ($size bytes): $f"; exit 1; fi
+          done
+      - name: Check SKILL.md frontmatter
+        run: |
+          head -1 skills/yeelight-smart-home/SKILL.md | grep -q '^---$'
+          grep -q '^name: yeelight-smart-home$' skills/yeelight-smart-home/SKILL.md
