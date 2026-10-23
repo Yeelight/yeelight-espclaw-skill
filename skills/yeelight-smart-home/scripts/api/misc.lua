@@ -47,7 +47,8 @@ M.routes["sensor.event.write"] = function(ctx)
     local event = contract.param(req, "event")
     if not device_id or type(event) ~= "table" then return missing(req, "deviceId/event") end
     local body = util.merge(event, { deviceId = tostring(device_id) })
-    local data, resp2 = common.call(req, { method = "POST", path = "/v1/sensor/w/events", body = body })
+    local path = event.test == true and "/v1/sensor/w/test" or "/v1/sensor/w/insert"
+    local data, resp2 = common.call(req, { method = "POST", path = path, body = body })
     if not data then return resp2 end
     return contract.success(req, i18n.t("ok", req.locale))
 end
@@ -84,9 +85,7 @@ end
 M.routes["message.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "GET",
-        path = "/v1/messagecenter/r/messages/" .. (contract.param(req, "pageNo") or 1)
-            .. "/" .. (contract.param(req, "pageSize") or 20),
+        method = "GET", path = "/v1/messagecenter/r/messages",
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -113,7 +112,7 @@ M.routes["upgrade.file.batch_list"] = function(ctx)
     local device_ids = contract.param(req, "deviceIds")
     if type(device_ids) ~= "table" then return missing(req, "deviceIds") end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/upgrade/r/listfile/batch", body = { deviceIds = device_ids },
+        method = "POST", path = "/v1/upgrade/r/batchlistfile", body = { deviceIds = device_ids },
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -136,7 +135,7 @@ M.routes["progress.get"] = function(ctx)
     local task_id = contract.param(req, "taskId")
     if not task_id then return missing(req, "taskId") end
     local data, resp2 = common.call(req, {
-        method = "GET", path = "/v1/progress/r/" .. util.url_escape(tostring(task_id)),
+        method = "POST", path = "/v1/progress/r/" .. util.url_escape(tostring(task_id)), body = {},
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { progress = data.data or data })
@@ -145,7 +144,7 @@ end
 M.routes["app_upgrade.latest.get"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "GET", path = "/v1/app/upgrade/r/latest",
+        method = "POST", path = "/v1/appupgrade/r/latestfile", body = {},
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { appUpgrade = data.data or data })
@@ -156,7 +155,7 @@ M.routes["ota.version_file.batch_list"] = function(ctx)
     local pids = contract.param(req, "pids")
     if type(pids) ~= "table" then return missing(req, "pids") end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/ota/r/version_file/batch", body = { pids = pids },
+        method = "POST", path = "/v1/ota/upgrade/r/batchListFilesByVersion", body = { pids = pids },
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -164,20 +163,25 @@ M.routes["ota.version_file.batch_list"] = function(ctx)
 end
 
 -- ---- AI 语音 ----
+-- ai_voice.list：Runtime 明确为 partial（涉及第三方凭据安全边界），只返回指引
 M.routes["ai_voice.list"] = function(ctx)
     local req = ctx.req
-    local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/aivoice/r/list", body = {},
-    })
-    if not data then return resp2 end
-    local rows = topology.extract_rows(data)
-    return contract.success(req, "ok", { total = #rows, items = common.top_n(rows).items })
+    return contract.make(req, contract.STATUSES.BLOCKED,
+        i18n.t("blocked", req.locale, "AI voice account binding involves third-party credentials"),
+        nil, {
+            clarification = {
+                question = "AI 语音账号能力涉及第三方凭据，请勿在对话中粘贴第三方语音账号、密码或 token；绑定请使用官方 App。",
+                guidance = { "不要在对话中粘贴第三方语音账号、密码或 token。",
+                    "需要绑定或修改时使用官方 App。" },
+            },
+        })
 end
 
+-- ai_voice.product.list：GET /v1/ai/voice/product/r/list
 M.routes["ai_voice.product.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/aivoice/r/product/list", body = {},
+        method = "GET", path = "/v1/ai/voice/product/r/list",
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -187,9 +191,10 @@ end
 -- ---- 地理区域（house-independent） ----
 M.routes["geo_area.children.list"] = function(ctx)
     local req = ctx.req
-    local parent_id = contract.param(req, "parentId") or 0
+    local parent_id = contract.param(req, "parentId")
+    if not parent_id then return missing(req, "parentId") end
     local data, resp2 = common.call(req, {
-        method = "GET", path = "/v1/geo/area/" .. util.url_escape(tostring(parent_id)) .. "/r/children",
+        method = "GET", path = "/v1/area/r/" .. util.url_escape(tostring(parent_id)) .. "/children",
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -198,26 +203,14 @@ end
 
 M.routes["geo_area.search"] = function(ctx)
     local req = ctx.req
-    local keyword = contract.param(req, "keyword")
-    if not keyword then return missing(req, "keyword") end
+    local name = contract.param(req, "keyword") or contract.param(req, "name")
+    if not name then return missing(req, "keyword") end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/geo/area/r/search", body = { keyword = tostring(keyword) },
+        method = "POST", path = "/v1/area/r/areas", body = { name = tostring(name) },
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
     return contract.success(req, "ok", { total = #rows, items = common.top_n(rows).items })
-end
-
--- ---- 设备槽位 ----
-M.routes["device.slot.create"] = function(ctx)
-    local req = ctx.req
-    local device_id = contract.param(req, "deviceId")
-    local slot = contract.param(req, "slot")
-    if not device_id or type(slot) ~= "table" then return missing(req, "deviceId/slot") end
-    local body = util.merge(slot, { deviceId = tostring(device_id) })
-    local data, resp2 = common.call(req, { method = "POST", path = "/v1/device/w/slot", body = body })
-    if not data then return resp2 end
-    return contract.success(req, i18n.t("ok", req.locale), { slot = data.data or data })
 end
 
 return M

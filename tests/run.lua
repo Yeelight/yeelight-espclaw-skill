@@ -33,6 +33,7 @@ runner.load("test_bind")
 runner.load("test_control")
 runner.load("test_router")
 runner.load("test_catalog_coverage")
+runner.load("test_endpoints")
 
 if not mock.summary() then
     passed = false

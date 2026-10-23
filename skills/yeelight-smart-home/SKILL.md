@@ -56,7 +56,7 @@ first; surface `userMessage` to the user verbatim when present.
    Poll by re-running `bind.account` with
    `parameters.resume={qrCodeId=..., deviceId=...}`.
 2. Never invent device/room/scene IDs. Use `entity.list` /
-   `target_resolver` output. When a name matches several entities, the
+   `entity.get` output. When a name matches several entities, the
    response is `clarification_required` with candidates — ask the user to
    choose; never guess.
 3. Never ask for or accept account passwords or tokens. Binding is QR-only.

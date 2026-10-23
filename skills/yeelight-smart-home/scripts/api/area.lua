@@ -37,7 +37,7 @@ M.routes["area.detail.get"] = function(ctx)
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "GET", path = area_base(house_id) .. "/r/detail/" .. util.url_escape(tostring(area_id)),
+        method = "GET", path = area_base(house_id) .. "/" .. util.url_escape(tostring(area_id)) .. "/r/info",
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { area = data.data or data })
@@ -73,7 +73,7 @@ M.routes["area.update"] = function(ctx)
         if v ~= nil then body[k] = v end
     end
     local data, resp2 = common.call(req, {
-        method = "POST", path = area_base(house_id) .. "/" .. util.url_escape(tostring(area_id)) .. "/w/update",
+        method = "POST", path = area_base(house_id) .. "/" .. util.url_escape(tostring(area_id)) .. "/w/modify",
         body = body,
     })
     if not data then return resp2 end

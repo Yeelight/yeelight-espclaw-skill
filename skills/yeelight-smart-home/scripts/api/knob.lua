@@ -17,11 +17,16 @@ M.routes["knob.get"] = function(ctx)
     local req = ctx.req
     local device_id = contract.param(req, "deviceId")
     if not device_id then return missing(req, "deviceId") end
+    -- 多键旋钮优先，单旋钮回退（Runtime 顺序一致）
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/multi-knob/" .. util.url_escape(tostring(device_id)) .. "/r/detail",
-        body = {},
+        method = "GET", path = "/v1/multi-knob/" .. util.url_escape(tostring(device_id)) .. "/detail",
     })
-    if not data then return resp2 end
+    if not data then
+        data, resp2 = common.call(req, {
+            method = "GET", path = "/v1/knobs/" .. util.url_escape(tostring(device_id)) .. "/detail",
+        })
+        if not data then return resp2 end
+    end
     return contract.success(req, "ok", { knob = data.data or data })
 end
 

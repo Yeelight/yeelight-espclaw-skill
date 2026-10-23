@@ -4,7 +4,6 @@ local contract = require("contract")
 local i18n = require("i18n")
 local common = require("api.common")
 local topology = require("topology")
-local target_resolver = require("target_resolver")
 local write_verify = require("write_verify")
 
 local M = {}
@@ -28,17 +27,30 @@ local function missing(req, key)
 end
 
 -- ---- 目标解析（控制写用，支持房间/灯组/全屋节点直写） ----
+local function name_match_room(room_name, rooms)
+    local m = require("name_match").match_one(room_name, rooms or {})
+    if m.status == "exact" then
+        return { id = m.item.id or m.item.roomId, name = m.item.name }
+    end
+    return nil
+end
+
 -- 返回 {ok=true, items={{id, nodeType, name}}} 或 {ok=false, resp=SkillResponse}
 function M.resolve_control_targets(req)
     local params = req.parameters or {}
     local explicit = req.targets
     local items = {}
     if type(explicit) == "table" and #explicit > 0 then
+        local ENTITY_NODE_TYPE = { room = 1, device = 2, area = 3, group = 4, home = 5 }
         for _, t in ipairs(explicit) do
             if type(t) == "table" and t.id then
+                local node_type = tonumber(t.nodeType)
+                if not node_type and type(t.entityType) == "string" then
+                    node_type = ENTITY_NODE_TYPE[t.entityType:lower()]
+                end
                 items[#items + 1] = {
                     id = tostring(t.id),
-                    nodeType = tonumber(t.nodeType) or M.NODE_TYPE.device,
+                    nodeType = node_type or M.NODE_TYPE.device,
                     name = tostring(t.name or t.id),
                 }
             end
@@ -113,14 +125,6 @@ function M.resolve_control_targets(req)
     local house_id, resp = common.require_house_id(req)
     if not house_id then return { ok = false, resp = resp } end
     return { ok = true, items = { { id = house_id, nodeType = M.NODE_TYPE.home, name = "全屋" } } }
-end
-
-function name_match_room(room_name, rooms)
-    local m = require("name_match").match_one(room_name, rooms or {})
-    if m.status == "exact" then
-        return { id = m.item.id or m.item.roomId, name = m.item.name }
-    end
-    return nil
 end
 
 -- ---- 通用控制写 ----
@@ -352,14 +356,14 @@ local function run_light_intent(ctx)
         spec.kind == "power" and "set" or "set", extra)
 end
 
+M.routes = {}
+
 for _, intent in ipairs({ "light.power.set", "light.brightness.set", "light.brightness.adjust",
     "light.color_temperature.set", "light.color_temperature.adjust", "light.color.set" }) do
-    M.routes = M.routes or {}
     M.routes[intent] = run_light_intent
 end
 
 -- ---- node.* / device.property.set ----
-M.routes = M.routes or {}
 
 M.routes["node.property.set"] = function(ctx)
     local req = ctx.req
@@ -542,13 +546,18 @@ M.routes["entity.capabilities"] = function(ctx)
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "POST",
-        path = "/v1/open/control/house/" .. util.url_escape(house_id)
-            .. "/control/" .. M.NODE_TYPE.device .. "/" .. util.url_escape(tostring(device_id)) .. "/r/properties",
-        body = {},
+        method = "GET",
+        path = "/v2/thing/schema/house/" .. util.url_escape(house_id)
+            .. "/device/r/info/1/100?crop=false",
     })
     if not data then return resp2 end
-    return contract.success(req, "ok", { capabilities = data.data or data })
+    -- 全量实体 schema 中过滤目标设备
+    local rows = topology.extract_rows(data)
+    local caps = {}
+    for _, r in ipairs(rows) do
+        if tostring(r.id or r.deviceId) == tostring(device_id) then caps[#caps + 1] = r end
+    end
+    return contract.success(req, "ok", { deviceId = tostring(device_id), capabilities = caps })
 end
 
 M.routes["device.detail.get"] = function(ctx)
@@ -583,7 +592,7 @@ M.routes["device.attr.list"] = function(ctx)
     local req = ctx.req
     local device_id = contract.param(req, "deviceId")
     local body = {}
-    if device_id then body.deviceId = tostring(device_id) end
+    if device_id then body.ids = tostring(device_id) end
     local data, resp2 = common.call(req, {
         method = "POST", path = "/v1/device/r/attrs", body = body,
     })
@@ -695,8 +704,10 @@ M.routes["node.sorted_device.list"] = function(ctx)
     local req = ctx.req
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
+    local target = contract.param(req, "target") or "device"
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/sort/" .. util.url_escape(house_id) .. "/r/entity/device/all", body = {},
+        method = "POST",
+        path = "/v1/node/r/1/" .. util.url_escape(tostring(target)) .. "/device", body = {},
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -720,10 +731,16 @@ M.routes["device.virtual_count.get"] = function(ctx)
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/device/r/virtual_count", body = { houseId = house_id },
+        method = "POST", path = "/v1/device/r/" .. util.url_escape(house_id) .. "/virturlNum", body = {},
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { count = data.data or data })
+end
+
+-- device.slot.create：云端无开放端点（/v1/device/w/insert 为内部通道），不支持
+M.routes["device.slot.create"] = function(ctx)
+    return contract.not_supported(ctx.req,
+        i18n.t("not_supported", ctx.req.locale, "device.slot.create"))
 end
 
 -- lighting.flow.execute：灯效/流（云端 action）

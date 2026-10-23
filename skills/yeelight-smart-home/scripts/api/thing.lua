@@ -56,7 +56,7 @@ M.routes["thing.schema.event.list"] = function(ctx)
     if not product_id then return missing(req, "productId") end
     local data, resp2 = common.call(req, {
         method = "POST",
-        path = "/v1/thing/schema/r/" .. util.url_escape(tostring(product_id)) .. "/events", body = {},
+        path = "/v1/thing/schema/r/getEvents/" .. util.url_escape(tostring(product_id)), body = {},
     })
     if not data then return resp2 end
     return list_response(req, data)
@@ -104,7 +104,7 @@ end
 M.routes["thing.product_domain.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/thing/product/domain/r/list", body = {},
+        method = "POST", path = "/v1/product-domain/r/list", body = {},
     })
     if not data then return resp2 end
     return list_response(req, data)
@@ -113,7 +113,7 @@ end
 M.routes["thing.category.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/thing/category/r/list", body = {},
+        method = "POST", path = "/v2/thing/schema/category/r/list", body = {},
     })
     if not data then return resp2 end
     return list_response(req, data)
@@ -123,7 +123,7 @@ M.routes["thing.component.list"] = function(ctx)
     local req = ctx.req
     local product_id = contract.param(req, "productId")
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/thing/component/r/list",
+        method = "POST", path = "/v2/thing/schema/component/r/list",
         body = product_id and { productId = tostring(product_id) } or {},
     })
     if not data then return resp2 end
@@ -135,7 +135,7 @@ M.routes["thing.component.get"] = function(ctx)
     local component_id = contract.param(req, "componentId")
     if not component_id then return missing(req, "componentId") end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/thing/component/r/" .. util.url_escape(tostring(component_id)), body = {},
+        method = "POST", path = "/v2/thing/schema/component/r/" .. util.url_escape(tostring(component_id)), body = {},
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { component = data.data or data })
@@ -145,7 +145,7 @@ M.routes["thing.property.list"] = function(ctx)
     local req = ctx.req
     local product_id = contract.param(req, "productId")
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/thing/property/r/list",
+        method = "POST", path = "/v2/thing/schema/property/r/list",
         body = product_id and { productId = tostring(product_id) } or {},
     })
     if not data then return resp2 end
@@ -223,7 +223,7 @@ M.routes["product.pedia.search"] = function(ctx)
     local data, resp2 = common.call(req, {
         method = "POST", base = auth.pedia_base(),
         path = "/v1/pedia/product/r/search",
-        body = { keyword = tostring(keyword), limit = limit },
+        body = { multiField = tostring(keyword) },
     })
     if not data then return resp2 end
     return list_response(req, data, limit)

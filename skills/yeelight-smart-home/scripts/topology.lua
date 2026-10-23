@@ -27,7 +27,7 @@ function M.extract_rows(data)
     return {}
 end
 
-local function fetch_rows(path_opts, house_id)
+local function fetch_rows(path_opts)
     local ok, data, err = http.request(path_opts)
     if not ok then return nil, err end
     local rows = {}
@@ -61,6 +61,16 @@ function M.load(opts)
         path = "/v1/device/r/all", method = "POST", body = { houseId = tostring(house_id) },
     }, house_id)
     if err_d then return false, nil, err_d end
+    -- 灯组 / 情景为尽力而为：失败不阻塞拓扑
+    local ok_g, groups = pcall(fetch_rows, {
+        path = "/v2/thing/manage/house/" .. util.url_escape(tostring(house_id)) .. "/group/r/info/1/100",
+        method = "GET",
+    }, house_id)
+    if not ok_g then groups = {} end
+    local ok_s, scenes = pcall(fetch_rows, {
+        path = "/v1/scene/r/all", method = "POST", body = { houseId = tostring(house_id) },
+    }, house_id)
+    if not ok_s then scenes = {} end
 
     local room_by_id = {}
     for _, r in ipairs(rooms) do
@@ -85,19 +95,14 @@ function M.load(opts)
         house_id = tostring(house_id),
         rooms = rooms,
         devices = norm_devices,
-        groups = {},
+        groups = groups or {},
+        scenes = scenes or {},
     }
     return true, M._cache, nil
 end
 
 function M.page_path_rooms(house_id)
     return "/v2/thing/manage/house/" .. util.url_escape(house_id) .. "/room/r/info/1/100"
-end
-
-function M.house_id(opts)
-    local creds, why = auth.require_credentials()
-    if not creds then return nil, why end
-    return auth.default_house_id(creds), nil
 end
 
 return M

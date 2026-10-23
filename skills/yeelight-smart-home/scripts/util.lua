@@ -127,10 +127,14 @@ function M.redact(s)
              :gsub('"authorization"%s*:%s*"[^"]+"', '"authorization":"***"'))
 end
 
--- 随机 ID（绑定用 deviceId 等）
+-- 随机 ID（绑定用 deviceId 等）；同一次脚本执行只播种一次
+local seeded = false
 function M.random_id(prefix, n)
     n = n or 12
-    math.randomseed((system and system.millis and system.millis() or os.time() * 1000) % 2147483647)
+    if not seeded then
+        math.randomseed((system and system.millis and system.millis() or os.time() * 1000) % 2147483647)
+        seeded = true
+    end
     local chars = "abcdefghijklmnopqrstuvwxyz0123456789"
     local out = {}
     for _ = 1, n do

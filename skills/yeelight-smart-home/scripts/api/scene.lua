@@ -26,7 +26,7 @@ local function resolve_scene(req)
     if not name or name == "" then return nil end
     local ok, topo, terr = topology.load({})
     if not ok then return nil, terr end
-    local m = name_match.match_one(name, topo.scenes or topo.devices)
+    local m = name_match.match_one(name, topo.scenes or {})
     if m.status == "exact" then
         return { id = tostring(m.item.id), name = m.item.name }
     end
@@ -41,7 +41,7 @@ local function list_scenes(ctx)
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "POST", path = scene_base(house_id) .. "/r/info/1/100", body = {},
+        method = "POST", path = "/v1/scene/r/all", body = { houseId = house_id },
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)
@@ -172,7 +172,10 @@ M.routes["scene.update"] = function(ctx)
     if not house_id then return resp end
     local body = util.merge(payload, { id = scene.id })
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/scene/" .. util.url_escape(scene.id) .. "/w/modify", body = body,
+        method = "POST",
+        path = "/v2/thing/manage/house/" .. util.url_escape(house_id)
+            .. "/scene/" .. util.url_escape(scene.id) .. "/w/modify",
+        body = body,
     })
     if not data then return resp2 end
     topology.invalidate()

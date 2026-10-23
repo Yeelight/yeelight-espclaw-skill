@@ -63,12 +63,23 @@ local function truncate_json(result)
     return summary
 end
 
+local function truncate_utf8(s, max_bytes)
+    if type(s) ~= "string" or #s <= max_bytes then return s end
+    local cut = max_bytes
+    -- 回退到 UTF-8 字符边界（多字节字符首字节 <= 0xF4 且后续字节 10xxxxxx）
+    while cut > 0 and (string.byte(s, cut) and string.byte(s, cut) >= 0x80
+        and string.byte(s, cut) < 0xC0) do
+        cut = cut - 1
+    end
+    return s:sub(1, cut) .. "…"
+end
+
 function M.make(req, status, user_message, result, extra)
     local resp = {
         contractVersion = M.CONTRACT_VERSION,
         requestId = req and req.requestId or util.random_id("req-"),
         status = status,
-        userMessage = user_message,
+        userMessage = truncate_utf8(user_message, M.MAX_USER_MESSAGE),
     }
     if result ~= nil then resp.result = truncate_json(result) end
     if type(extra) == "table" then

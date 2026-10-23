@@ -30,8 +30,32 @@ M.routes["gateway.list"] = function(ctx)
         { total = #rows, items = summary.items, truncated = summary.truncated })
 end
 
-M.routes["gateway.stats.list"] = M.routes["gateway.list"]
-M.routes["gateway.scene_relation.list"] = M.routes["gateway.list"]
+-- 网关统计：POST /v1/device/r/gatewayswithstats {houseId}
+M.routes["gateway.stats.list"] = function(ctx)
+    local req = ctx.req
+    local house_id, resp = common.require_house_id(req)
+    if not house_id then return resp end
+    local data, resp2 = common.call(req, {
+        method = "POST", path = "/v1/device/r/gatewayswithstats", body = { houseId = house_id },
+    })
+    if not data then return resp2 end
+    local rows = topology.extract_rows(data)
+    return contract.success(req, "ok", { total = #rows, items = common.top_n(rows).items })
+end
+
+-- 网关-情景关系：POST /v1/scene/r/{gatewayId}/related/sceneId
+M.routes["gateway.scene_relation.list"] = function(ctx)
+    local req = ctx.req
+    local gateway_id = contract.param(req, "gatewayId")
+    if not gateway_id then return missing(req, "gatewayId") end
+    local data, resp2 = common.call(req, {
+        method = "POST",
+        path = "/v1/scene/r/" .. util.url_escape(tostring(gateway_id)) .. "/related/sceneId",
+        body = {},
+    })
+    if not data then return resp2 end
+    return contract.success(req, "ok", { sceneIds = (data.data and data.data.sceneIds) or data.data or {} })
+end
 
 M.routes["gateway.detail.get"] = function(ctx)
     local req = ctx.req

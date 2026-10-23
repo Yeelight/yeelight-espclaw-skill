@@ -56,10 +56,8 @@ M.routes["room.detail.get"] = function(ctx)
     local req = ctx.req
     local room_id = contract.param(req, "roomId") or contract.param(req, "id")
     if not room_id then return missing(req, "roomId") end
-    local house_id, resp = common.require_house_id(req)
-    if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "GET", path = room_base(house_id) .. "/r/detail/" .. util.url_escape(tostring(room_id)),
+        method = "POST", path = "/v1/room/" .. util.url_escape(tostring(room_id)) .. "/r/detail", body = {},
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { room = data.data or data })
@@ -130,20 +128,15 @@ end
 
 M.routes["room.batch_update"] = function(ctx)
     local req = ctx.req
-    local updates = contract.param(req, "updates")
+    local updates = contract.param(req, "updates") or contract.param(req, "rooms")
     if type(updates) ~= "table" or #updates == 0 then return missing(req, "updates") end
-    local failed = {}
-    for _, u in ipairs(updates) do
-        if type(u) == "table" and u.roomId then
-            local sub_req = util.merge(req, { parameters = util.merge(req.parameters or {}, u) })
-            local resp = M.routes["room.update"]({ req = sub_req })
-            if resp.status ~= contract.STATUSES.SUCCESS then failed[#failed + 1] = tostring(u.roomId) end
-        end
-    end
-    if #failed > 0 then
-        return contract.partial(req,
-            i18n.t("partial", req.locale, "failed: " .. table.concat(failed, "、")), { failed = failed })
-    end
+    local house_id, resp = common.require_house_id(req)
+    if not house_id then return resp end
+    local data, resp2 = common.call(req, {
+        method = "POST", path = "/v1/room/w/batchupdate", body = { rooms = updates },
+    })
+    if not data then return resp2 end
+    require("topology").invalidate()
     return contract.success(req, i18n.t("ok", req.locale))
 end
 
@@ -166,18 +159,24 @@ M.routes["room.batch_delete"] = room_delete
 
 M.routes["room.area.configure"] = function(ctx)
     local req = ctx.req
-    local area_id = contract.param(req, "areaId")
-    local room_ids = contract.param(req, "roomIds")
-    if not area_id or type(room_ids) ~= "table" then return missing(req, "areaId/roomIds") end
+    local room_id = contract.param(req, "roomId")
+    if not room_id then return missing(req, "roomId") end
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
+    -- Runtime 语义：payload 字段（areaId/addAreaList/removeAreaList...）+ houseId + id
+    local body = { houseId = house_id, id = tostring(room_id) }
+    local params = req.parameters or {}
+    for _, k in ipairs({ "areaId", "addAreaList", "removeAreaList", "areaIds" }) do
+        if params[k] ~= nil then body[k] = params[k] end
+    end
     local data, resp2 = common.call(req, {
         method = "POST",
         path = "/v2/thing/manage/house/" .. util.url_escape(house_id)
-            .. "/area/" .. util.url_escape(tostring(area_id)) .. "/w/rooms",
-        body = { roomIds = room_ids },
+            .. "/room/" .. util.url_escape(tostring(room_id)) .. "/w/areas",
+        body = body,
     })
     if not data then return resp2 end
+    require("topology").invalidate()
     return contract.success(req, i18n.t("ok", req.locale))
 end
 

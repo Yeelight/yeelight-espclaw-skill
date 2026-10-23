@@ -61,10 +61,10 @@ function M.business_ok(data)
     return false, tostring(data.msg or data.message or "business error"), code
 end
 
--- 数组响应包装成 {data=...}；分页响应（rows/total）保持原样
+-- 数组响应包装成 {data=...}；对象/空表保持原样
 function M.unwrap(data)
     if type(data) ~= "table" then return data end
-    if util.is_array(data) then return { data = data } end
+    if util.is_array(data) and #data > 0 then return { data = data } end
     return data
 end
 
@@ -158,11 +158,16 @@ function M.request(opts)
     return true, M.unwrap(data), nil, { http_status = parsed.status, data = data }
 end
 
--- 路径参数 escape（保留 /）
+-- 路径参数 escape（保留 / 与 query string 的 ? & =）
 function M.escape_path(path)
-    return (path:gsub("[^%w%-%_%.~/]", function(c)
+    local base, query = path:match("^([^?]*)%??(.*)$")
+    base = base:gsub("[^%w%-%_%.~/]", function(c)
         return string.format("%%%02X", string.byte(c))
-    end))
+    end)
+    if query and query ~= "" then
+        return base .. "?" .. query
+    end
+    return base
 end
 
 -- 分页路径片段：/r/info/{pageNo}/{pageSize}
