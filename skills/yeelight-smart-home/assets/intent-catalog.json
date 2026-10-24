@@ -193,6 +193,7 @@
     "favorite.delete",
     "favorite.batch_add",
     "favorite.batch_update",
-    "favorite.batch_delete"
+    "favorite.batch_delete",
+    "bind.account"
   ]
 }

@@ -75,6 +75,14 @@ M.routes["lighting.design.apply"] = function(ctx)
         return contract.make(req, contract.STATUSES.BLOCKED, msg, nil,
             { clarification = { question = msg, requiresConfirmation = true } })
     end
+    -- plan 属性过可写白名单（与 node.property.set 同等防线）
+    local risk = require("risk")
+    for prop, _ in pairs(plan) do
+        if type(prop) == "string" and not risk.WRITABLE_PROPS[prop:lower()] then
+            return contract.blocked(req, i18n.t("blocked", req.locale,
+                "property '" .. prop .. "' not writable"))
+        end
+    end
     local resolved = device_api.resolve_control_targets(req)
     if not resolved.ok then return resolved.resp end
     local ok_items, failed = {}, {}

@@ -20,6 +20,7 @@ M.R3_INTENTS = {
 -- R2：改动型管理操作（dryRun 可预览）
 M.R2_PREFIXES = {
     "home.create", "home.update", "home.property.set", "home.sort.configure",
+    "scene.batch_delete",
     "room.", "area.", "group.", "scene.create", "scene.update", "scene.delete",
     "automation.", "device.rename", "device.move", "entity.rename.batch",
     "panel.", "knob.", "gateway.configure", "favorite.", "home.member.",
@@ -65,7 +66,7 @@ end
 function M.check_confirmation(req)
     if M.risk_of(req.intent) ~= "R3" then return nil end
     local confirmed = req.parameters and req.parameters.confirmed
-    if not confirmed then
+    if confirmed ~= true then
         local msg = i18n.t("need_confirm", req.locale, req.intent)
         return contract.make(req, contract.STATUSES.BLOCKED, msg, nil, {
             clarification = { question = msg, requiresConfirmation = true },
@@ -86,11 +87,12 @@ function M.check_sensitive_prop(req)
     return nil
 end
 
--- 控制命令可写属性白名单检查（node.property.set / device.property.set）
+-- 控制命令可写属性白名单检查
 function M.check_writable_prop(req)
     local intent = req.intent
     if intent ~= "node.property.set" and intent ~= "device.property.set"
-        and intent ~= "node.properties.set" and intent ~= "node.property.batch_set" then
+        and intent ~= "node.properties.set" and intent ~= "node.property.batch_set"
+        and intent ~= "home.property.set" and intent ~= "node.property.toggle" then
         return nil
     end
     local params = req.parameters or {}

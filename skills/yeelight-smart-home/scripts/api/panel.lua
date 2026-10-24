@@ -67,9 +67,12 @@ M.routes["panel.button.configure"] = function(ctx)
     if not device_id or type(button) ~= "table" or button.index == nil then
         return missing(req, "deviceId/button(index,...)")
     end
-    local current = M.routes["panel.get"]({ req = req })
-    if current.status ~= contract.STATUSES.SUCCESS then return current end
-    local panel = current.result and current.result.panel or {}
+    -- 直接读云端（不经 contract result 截断——截断会丢按键列表导致全量替换时清空其他按键）
+    local data, resp2 = common.call(req, {
+        method = "POST", path = "/v1/panel/r/detail/" .. util.url_escape(tostring(device_id)), body = {},
+    })
+    if not data then return resp2 end
+    local panel = data.data or data
     local buttons = panel.buttons or panel.buttonList or {}
     local merged = {}
     for _, b in ipairs(buttons) do

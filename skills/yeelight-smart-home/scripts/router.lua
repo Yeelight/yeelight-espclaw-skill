@@ -193,8 +193,9 @@ local function handle_bind(ctx)
                 ctx.qr_display = qr.display(info)
             end,
         })
-        if not ok and err and err.message and state == "failed" then
-            return contract.error(req, i18n.t("bind_failed", req.locale, tostring(err.message)))
+        if state == "failed" then
+            local reason = (err and err.message) or (detail and detail.message) or "unknown"
+            return contract.error(req, i18n.t("bind_failed", req.locale, tostring(reason)))
         end
     end
     if state == "login" then
@@ -234,13 +235,13 @@ end
 
 function M.dispatch(req)
     local intent = req.intent
+    -- options.explain：只解释 intent，不执行（须在所有执行分支之前）
+    if req.options and req.options.explain == true then
+        return LOCAL_HANDLERS["intent.explain"]({ req = req })
+    end
     -- 绑定独立入口
     if intent == "bind.account" then
         return handle_bind({ req = req })
-    end
-    -- options.explain：只解释 intent，不执行
-    if req.options and req.options.explain == true then
-        return LOCAL_HANDLERS["intent.explain"]({ req = req })
     end
     -- 本地能力
     local local_handler = LOCAL_HANDLERS[intent]

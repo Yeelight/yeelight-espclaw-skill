@@ -71,8 +71,10 @@ first; surface `userMessage` to the user verbatim when present.
 7. Intents listed as not supported in
    `{CUR_SKILL_DIR}/assets/intent-map.json` return `not_supported`; do not
    retry them or approximate with other intents.
-8. List responses are capped (top N + total). To narrow results, re-run the
-   same intent with `parameters.pageNo` / a `roomName` / a search word.
+8. List responses are capped. `entity.list`/`device.list` accept
+   `parameters.pageNo` (from 1) / `pageSize` / `roomName`; other domains have
+   dedicated `*.search` intents (home.search, room.search, group.search,
+   scene.search) — prefer those over re-running list intents.
 9. Large-parameter payloads: set `options.explain=true` to request
    `intent.explain`-style guidance for that intent's expected parameters.
 
@@ -93,7 +95,7 @@ first; surface `userMessage` to the user verbatim when present.
 ## Parameter quick reference
 
 - Light control: `parameters` = `{roomName?, deviceName?, areaName?,
-  groupName?, brightness? (0-100), colorTemperature? (K or profile),
+  groupName?, brightness? (1-100), colorTemperature? (K or profile),
   color? (RGB int or name), power? (on/off)}`.
 - Scene execute: `{sceneName}` or `{sceneId}`.
 - State query: `{deviceId}` or `{deviceName}` + optional `{roomName}`;

@@ -32,8 +32,10 @@ M.routes["automation.list.page"] = M.routes["automation.list"]
 M.routes["automation.rule.list"] = M.routes["automation.list"]
 M.routes["automation.supported.list"] = function(ctx)
     local req = ctx.req
+    local house_id, resp = common.require_house_id(req)
+    if not house_id then return resp end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/automations/r/list", body = {},
+        method = "POST", path = "/v1/automations/r/list", body = { houseId = house_id },
     })
     if not data then return resp2 end
     local rows = topology.extract_rows(data)

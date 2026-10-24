@@ -167,8 +167,8 @@ M.routes["thing.product_faq.detail.get"] = function(ctx)
     local faq_id = contract.param(req, "faqId") or contract.param(req, "id")
     if not faq_id then return missing(req, "faqId") end
     local data, resp2 = common.call(req, {
-        method = "POST",
-        path = "/v1/platform/thing/product_faq/r/" .. util.url_escape(tostring(faq_id)), body = {},
+        method = "GET",
+        path = "/v1/platform/thing/product_faq/r/" .. util.url_escape(tostring(faq_id)) .. "/detail",
     })
     if not data then return resp2 end
     return contract.success(req, "ok", { faq = data.data or data })
@@ -177,18 +177,25 @@ end
 M.routes["thing.product_faq.type.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/platform/thing/product_faq/r/type/list", body = {},
+        method = "GET", path = "/v1/platform/thing/product_faq/r/faq-types",
     })
     if not data then return resp2 end
     return list_response(req, data)
 end
 
-M.routes["thing.product_faq.item_type.list"] = M.routes["thing.product_faq.type.list"]
+M.routes["thing.product_faq.item_type.list"] = function(ctx)
+    local req = ctx.req
+    local data, resp2 = common.call(req, {
+        method = "GET", path = "/v1/platform/thing/product_faq/r/faq-item-types",
+    })
+    if not data then return resp2 end
+    return list_response(req, data)
+end
 
 M.routes["thing.product_faq.locale.list"] = function(ctx)
     local req = ctx.req
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/platform/thing/product_faq/r/locale/list", body = {},
+        method = "GET", path = "/v1/platform/thing/product_faq/r/locales",
     })
     if not data then return resp2 end
     return list_response(req, data)
@@ -196,9 +203,11 @@ end
 
 M.routes["thing.product_faq.page.list"] = function(ctx)
     local req = ctx.req
-    local page = contract.param(req, "pageNo") or 1
+    local body = { page = contract.param(req, "pageNo") or 1 }
+    local page_size = contract.param(req, "pageSize")
+    if page_size then body.pageSize = page_size end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/platform/thing/product_faq/r/page/" .. tostring(page), body = {},
+        method = "POST", path = "/v1/platform/thing/product_faq/r/page", body = body,
     })
     if not data then return resp2 end
     return list_response(req, data)
@@ -206,9 +215,11 @@ end
 
 M.routes["thing.product_faq.page_detail.list"] = function(ctx)
     local req = ctx.req
-    local page = contract.param(req, "pageNo") or 1
+    local body = { page = contract.param(req, "pageNo") or 1 }
+    local page_size = contract.param(req, "pageSize")
+    if page_size then body.pageSize = page_size end
     local data, resp2 = common.call(req, {
-        method = "POST", path = "/v1/platform/thing/product_faq/r/page_detail/" .. tostring(page), body = {},
+        method = "POST", path = "/v1/platform/thing/product_faq/r/pageDetail", body = body,
     })
     if not data then return resp2 end
     return list_response(req, data)

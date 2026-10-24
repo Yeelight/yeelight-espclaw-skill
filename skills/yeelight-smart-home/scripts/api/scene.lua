@@ -25,7 +25,7 @@ local function resolve_scene(req)
     local name = contract.param(req, "sceneName") or contract.param(req, "name")
     if not name or name == "" then return nil end
     local ok, topo, terr = topology.load({})
-    if not ok then return nil, terr end
+    if not ok then return { error = terr } end
     local m = name_match.match_one(name, topo.scenes or {})
     if m.status == "exact" then
         return { id = tostring(m.item.id), name = m.item.name }
@@ -83,6 +83,7 @@ M.routes["scene.detail.get"] = function(ctx)
     local req = ctx.req
     local scene = resolve_scene(req)
     if not scene then return missing(req, "sceneId/sceneName") end
+    if scene.error then return common.err_response(req, scene.error) end
     if scene.not_found or scene.ambiguous then
         return contract.make(req, contract.STATUSES.CLARIFICATION,
             i18n.t("not_found", req.locale, tostring(scene.name)))
@@ -99,6 +100,7 @@ M.routes["scene.execute"] = function(ctx)
     local req = ctx.req
     local scene = resolve_scene(req)
     if not scene then return missing(req, "sceneId/sceneName") end
+    if scene.error then return common.err_response(req, scene.error) end
     if scene.ambiguous then
         local labels = name_match.candidate_labels(scene.ambiguous)
         local msg = i18n.t("ambiguous", req.locale, tostring(scene.name), #scene.ambiguous, labels)
@@ -121,7 +123,7 @@ M.routes["scene.execute"] = function(ctx)
         "/v1/controll/device/w/scene/" .. util.url_escape(scene.id),
         "/v1/thing/device/w/scene/" .. util.url_escape(scene.id),
     }
-    local last_err, no_gateway = nil, false
+    local last_err, last_was_no_gateway = nil, false
     for i, path in ipairs(endpoints) do
         local ok, data, err = require("http").request({ method = "POST", path = path, body = {} })
         if ok then
@@ -129,13 +131,12 @@ M.routes["scene.execute"] = function(ctx)
                 { sceneId = scene.id, source = "endpoint_" .. i })
         end
         last_err = err
-        if err and err.message and tostring(err.message):find("无有效网关", 1, true) then
-            no_gateway = true
-        end
-        -- fallback 仅在网关错误时继续；其余错误直接失败
-        if not no_gateway then break end
+        last_was_no_gateway = err ~= nil and err.message ~= nil
+            and tostring(err.message):find("无有效网关", 1, true) ~= nil
+        -- 仅网关错误继续尝试下一端点；其余错误直接失败
+        if not last_was_no_gateway then break end
     end
-    if no_gateway then
+    if last_was_no_gateway then
         return contract.blocked(req, i18n.t("blocked", req.locale, "scene has no valid gateway"))
     end
     return common.err_response(req, last_err)
@@ -168,6 +169,7 @@ M.routes["scene.update"] = function(ctx)
     local req = ctx.req
     local scene = resolve_scene(req)
     if not scene then return missing(req, "sceneId/sceneName") end
+    if scene.error then return common.err_response(req, scene.error) end
     if scene.not_found or scene.ambiguous then
         return contract.make(req, contract.STATUSES.CLARIFICATION,
             i18n.t("not_found", req.locale, tostring(scene.name)))
@@ -191,6 +193,7 @@ end
 local function scene_delete(req)
     local scene = resolve_scene(req)
     if not scene then return missing(req, "sceneId/sceneName") end
+    if scene.error then return common.err_response(req, scene.error) end
     if scene.not_found or scene.ambiguous then
         return contract.make(req, contract.STATUSES.CLARIFICATION,
             i18n.t("not_found", req.locale, tostring(scene.name)))

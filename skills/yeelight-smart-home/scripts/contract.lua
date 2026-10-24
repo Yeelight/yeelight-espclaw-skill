@@ -72,13 +72,42 @@ end
 
 local function truncate_utf8(s, max_bytes)
     if type(s) ~= "string" or #s <= max_bytes then return s end
+    -- s:sub(1, cut) 为完整字符 ⇔ 第 cut+1 字节不是续字节（0x80-0xBF）
     local cut = max_bytes
-    -- 回退到 UTF-8 字符边界（多字节字符首字节 <= 0xF4 且后续字节 10xxxxxx）
-    while cut > 0 and (string.byte(s, cut) and string.byte(s, cut) >= 0x80
-        and string.byte(s, cut) < 0xC0) do
-        cut = cut - 1
+    while cut > 0 do
+        local next_byte = string.byte(s, cut + 1)
+        if next_byte and next_byte >= 0x80 and next_byte < 0xC0 then
+            cut = cut - 1
+        else
+            break
+        end
     end
+    if cut <= 0 then return "" end
     return s:sub(1, cut) .. "…"
+end
+
+-- clarification 体积防线：candidates 投影精简，整体超限退化为 question
+local function slim_clarification(clar)
+    if type(clar) ~= "table" then return clar end
+    local out = {}
+    for k, v in pairs(clar) do out[k] = v end
+    if type(out.candidates) == "table" then
+        local slim = {}
+        for i, c in ipairs(out.candidates) do
+            if i > 5 then break end
+            if type(c) == "table" then
+                slim[i] = { id = c.id, name = c.name, roomName = c.roomName }
+            else
+                slim[i] = c
+            end
+        end
+        out.candidates = slim
+    end
+    local ok, encoded = pcall(function() return json.encode(out) end)
+    if not ok or #encoded > 800 then
+        return { question = tostring(out.question or "") }
+    end
+    return out
 end
 
 function M.make(req, status, user_message, result, extra)
@@ -91,7 +120,9 @@ function M.make(req, status, user_message, result, extra)
     if result ~= nil then resp.result = truncate_json(result) end
     if type(extra) == "table" then
         for _, key in ipairs({ "clarification", "error", "warnings", "metrics", "traceId" }) do
-            if extra[key] ~= nil then resp[key] = extra[key] end
+            if extra[key] ~= nil then
+                resp[key] = (key == "clarification") and slim_clarification(extra[key]) or extra[key]
+            end
         end
     end
     return resp
@@ -122,8 +153,9 @@ function M.auth_required(req, message)
 end
 
 function M.error(req, message, code)
-    return M.make(req, M.STATUSES.ERROR, message, nil,
-        { error = { code = code or "E_INTERNAL", message = message } })
+    local msg = truncate_utf8(tostring(message or ""), 300)
+    return M.make(req, M.STATUSES.ERROR, msg, nil,
+        { error = { code = code or "E_INTERNAL", message = msg } })
 end
 
 -- 参数读取辅助：支持 parameters 与顶层兜底

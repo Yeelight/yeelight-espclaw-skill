@@ -26,7 +26,8 @@ end
 -- ---- memory ----
 -- entry: {content, kind?, tags?}
 function M.memory_remember(entry)
-    if type(entry) ~= "table" or not entry.content or util.trim(entry.content) == "" then
+    if type(entry) ~= "table" or type(entry.content) ~= "string"
+        or util.trim(entry.content) == "" then
         return false, "content required"
     end
     local list = read_json(M.MEMORY_FILE)

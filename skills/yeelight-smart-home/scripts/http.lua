@@ -74,8 +74,8 @@ function M.unwrap(data)
     return data
 end
 
--- opts: {method, path, base, body(table), headers(extra), timeout_ms,
---        max_body_bytes, save_path, no_auth(bool), raw_path(bool), region}
+-- opts: {method, path, base, body(table|string), headers(extra), timeout_ms,
+--        max_body_bytes, save_path, no_auth(bool), region}
 -- 返回: ok(bool), data|nil, err|nil, raw_response
 function M.request(opts)
     opts = opts or {}
@@ -89,11 +89,8 @@ function M.request(opts)
         end
     end
     local base = opts.base or auth.region_base(opts.region or (creds and creds.region))
-    local host_ok = false
-    for host in pairs(ALLOW_HOSTS) do
-        if base:find(host, 1, true) then host_ok = true end
-    end
-    if not host_ok then
+    local host = base:match("^https?://([^/]+)") or ""
+    if not ALLOW_HOSTS[host] then
         return false, nil, M.err("E_CONFIG", "base url not allowed")
     end
     local url = base .. M.escape_path(opts.path or "")
@@ -155,6 +152,10 @@ function M.request(opts)
     if not ok_d then
         return false, nil, data
     end
+    -- 空响应体（如部分 DELETE 的 200 空_body）视为成功
+    if data == nil then
+        return true, nil, nil, { http_status = parsed.status, data = nil }
+    end
     local biz_ok, biz_msg, biz_code = M.business_ok(data)
     if not biz_ok then
         return false, nil, M.err("E_BUSINESS", biz_msg or "business error", parsed.status), {
@@ -174,11 +175,6 @@ function M.escape_path(path)
         return base .. "?" .. query
     end
     return base
-end
-
--- 分页路径片段：/r/info/{pageNo}/{pageSize}
-function M.page_path(prefix, pageNo, pageSize)
-    return string.format("%s/r/info/%d/%d", prefix, pageNo or 1, pageSize or 100)
 end
 
 return M

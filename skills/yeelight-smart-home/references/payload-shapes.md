@@ -4,7 +4,9 @@
 ```json
 {"value": 60, "command": "set", "duration": 500, "delay": 0, "index": 1}
 ```
-adjust body：`{"value": <delta>}`；toggle 无 body。
+- set 端点：`command` 仅在非 set 时携带。
+- adjust 端点（`.../w/properties/{prop}/adjust`）：body 仅 `{"value": <delta>}`，不带 command。
+- toggle 端点（`.../w/properties/{prop}/toggle`）：body 为 `{}`。
 
 ## 情景创建/更新（全量）
 ```json

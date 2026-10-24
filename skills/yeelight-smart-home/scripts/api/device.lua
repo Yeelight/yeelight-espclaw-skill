@@ -81,6 +81,17 @@ function M.resolve_control_targets(req)
                         nodeType = node_type or M.NODE_TYPE.device,
                         name = m.item.name,
                     }
+                elseif m.status == "ambiguous" then
+                    local labels = require("name_match").candidate_labels(m.candidates)
+                    local msg = i18n.t("ambiguous", req.locale, tostring(t.name),
+                        #m.candidates, labels)
+                    local candidates = {}
+                    for i, c in ipairs(m.candidates) do
+                        if i > 5 then break end
+                        candidates[i] = { id = c.id, name = c.name, roomName = c.roomName }
+                    end
+                    return { ok = false, resp = contract.clarification(req, msg,
+                        { question = msg, candidates = candidates }) }
                 else
                     return { ok = false, resp = contract.make(req, contract.STATUSES.CLARIFICATION,
                         i18n.t("not_found", req.locale, tostring(t.name))) }
@@ -127,7 +138,12 @@ function M.resolve_control_targets(req)
         if #top > 1 then
             local labels = require("name_match").candidate_labels(top)
             local msg = i18n.t("ambiguous", req.locale, tostring(device_name), #top, labels)
-            return { ok = false, resp = contract.clarification(req, msg, { question = msg, candidates = top }) }
+            local candidates = {}
+            for i, c in ipairs(top) do
+                if i > 5 then break end
+                candidates[i] = { id = c.id, name = c.name, roomName = c.roomName }
+            end
+            return { ok = false, resp = contract.clarification(req, msg, { question = msg, candidates = candidates }) }
         end
         return { ok = true, items = { { id = top[1].id, nodeType = M.NODE_TYPE.device, name = top[1].name } } }
     end
@@ -172,16 +188,19 @@ function M.write_property(req, item, prop, value, command, extra)
             if extra[k] ~= nil then body[k] = extra[k] end
         end
     end
+    local prop_esc = util.url_escape(tostring(prop))
     local path
     if command == "toggle" then
         path = string.format("/v1/open/control/house/%s/control/%d/%s/w/properties/%s/toggle",
-            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop)
+            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop_esc)
     elseif command == "adjust" then
+        -- /adjust 端点 body 仅 {value}（Runtime 语义），不带 command 字段
         path = string.format("/v1/open/control/house/%s/control/%d/%s/w/properties/%s/adjust",
-            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop)
+            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop_esc)
+        body = { value = value }
     else
         path = string.format("/v1/open/control/house/%s/control/%d/%s/w/properties/%s",
-            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop)
+            util.url_escape(house_id), item.nodeType, util.url_escape(item.id), prop_esc)
     end
     return require("http").request({ method = "POST", path = path, body = body })
 end
@@ -378,11 +397,15 @@ local function run_light_intent(ctx)
             return contract.success(req, i18n.t("light_set", req.locale, table.concat(ok_items, "、")),
                 { verified = true, property = spec.semantic, targets = ok_items })
         end
+        local fail_parts = {}
+        for _, f in ipairs(failed) do
+            fail_parts[#fail_parts + 1] = tostring(f.name) .. "(" .. tostring(f.reason) .. ")"
+        end
         if #ok_items == 0 then
             return common.err_response(req, { code = failed[1].reason, message = "adjust failed" })
         end
         return contract.partial(req, i18n.t("partial", req.locale,
-            table.concat(failed, "、")), { verified = true, targets = ok_items, failed = failed })
+            table.concat(fail_parts, "、")), { verified = true, targets = ok_items, failed = failed })
     end
     return M.control_and_verify(req, resolved.items, spec.prop, spec.semantic, expected,
         spec.kind == "power" and "set" or "set", extra)
@@ -426,7 +449,10 @@ M.routes["node.properties.set"] = function(ctx)
     for _, item in ipairs(resolved.items) do
         for _, p in ipairs(props) do
             local prop = type(p) == "table" and (p.prop or p.propName) or p
-            local value = type(p) == "table" and p.value or params.value
+            -- 注意 value 可能为 false，不能 and/or 兜底
+            local value
+            if type(p) == "table" and p.value ~= nil then value = p.value end
+            if value == nil then value = params.value end
             local ok = M.write_property(req, item, prop, value, "set")
             if not ok then failed[#failed + 1] = item.name .. ":" .. tostring(prop) end
         end
@@ -516,12 +542,21 @@ end
 
 M.routes["state.query"] = function(ctx)
     local req = ctx.req
+    local params = req.parameters or {}
     local resolved = M.resolve_control_targets(req)
     if not resolved.ok then return resolved.resp end
     local item = resolved.items[1]
     if not item then return missing(req, "device") end
     local ok, props, err = read_device_props(req, item)
     if not ok then return common.err_response(req, err) end
+    -- propertyName 过滤（SKILL.md 契约）
+    local prop_filter = params.propertyName or params.property
+    if prop_filter ~= nil and type(props) == "table" then
+        local filtered = {}
+        local want = require("write_verify").PROP_ID[tostring(prop_filter)] or tostring(prop_filter)
+        filtered[want] = props[want]
+        props = filtered
+    end
     local parts = {}
     for prop, value in pairs(props) do parts[#parts + 1] = prop .. "=" .. tostring(value) end
     table.sort(parts)
@@ -543,18 +578,38 @@ M.routes["state.batch.query"] = function(ctx)
     return contract.success(req, "ok", { results = results })
 end
 
-M.routes["entity.list"] = function(ctx)
+local function paged_entity_list(ctx)
     local req = ctx.req
     local ok, topo, terr = topology.load({ house_id = contract.param(req, "houseId") })
     if not ok then return common.err_response(req, terr) end
     local rows = topo.devices
-    local summary = common.top_n(rows)
+    -- roomName 过滤（SKILL.md 契约）
+    local room_name = contract.param(req, "roomName")
+    if room_name and room_name ~= "" and room_name ~= "全屋" then
+        local filtered = {}
+        for _, d in ipairs(rows) do
+            if d.roomName == tostring(room_name) then filtered[#filtered + 1] = d end
+        end
+        rows = filtered
+    end
+    local total = #rows
+    -- 分页（SKILL.md 契约）：pageNo 从 1 起，pageSize 缺省 10
+    local page_no = util.to_int(contract.param(req, "pageNo")) or 1
+    local page_size = util.to_int(contract.param(req, "pageSize")) or common.TOP_N
+    if page_no < 1 then page_no = 1 end
+    if page_size < 1 then page_size = 1 end
+    local items = {}
+    for i = (page_no - 1) * page_size + 1, math.min(page_no * page_size, total) do
+        items[#items + 1] = rows[i]
+    end
     return contract.success(req,
-        i18n.t("entity_list", req.locale, #rows, #summary.items, common.name_list(summary.items)),
-        { total = #rows, items = summary.items, truncated = summary.truncated })
+        i18n.t("entity_list", req.locale, total, #items, common.name_list(items)),
+        { total = total, pageNo = page_no, pageSize = page_size, items = items,
+          truncated = total > #items })
 end
 
-M.routes["device.list"] = M.routes["entity.list"]
+M.routes["entity.list"] = paged_entity_list
+M.routes["device.list"] = paged_entity_list
 
 M.routes["entity.get"] = function(ctx)
     local req = ctx.req
