@@ -109,14 +109,20 @@ LOCAL_HANDLERS["operation.lesson.list"] = function(ctx)
 end
 
 -- 批量配置：顺序执行 steps = [{intent=..., parameters={...}}]，任一失败即 partial
+-- 递归深度保护：嵌套 batch 最多 3 层（M._batch_depth）
+M._batch_depth = M._batch_depth or 0
 LOCAL_HANDLERS["operation.batch.configure"] = function(ctx)
     local req = ctx.req
+    if M._batch_depth >= 3 then
+        return contract.blocked(req, i18n.t("blocked", req.locale, "nested batch depth limit (3)"))
+    end
     local steps = contract.param(req, "steps")
     if type(steps) ~= "table" or #steps == 0 then
         return contract.make(req, contract.STATUSES.CLARIFICATION,
             i18n.t("missing_param", req.locale, "steps"))
     end
     local ok_steps, failed = {}, {}
+    M._batch_depth = M._batch_depth + 1
     for i, step in ipairs(steps) do
         if type(step) == "table" and step.intent then
             local sub_req = {
@@ -136,6 +142,7 @@ LOCAL_HANDLERS["operation.batch.configure"] = function(ctx)
             end
         end
     end
+    M._batch_depth = M._batch_depth - 1
     if #failed == 0 then
         return contract.success(req, i18n.t("ok", req.locale), { applied = ok_steps })
     end
@@ -230,6 +237,10 @@ function M.dispatch(req)
     -- 绑定独立入口
     if intent == "bind.account" then
         return handle_bind({ req = req })
+    end
+    -- options.explain：只解释 intent，不执行
+    if req.options and req.options.explain == true then
+        return LOCAL_HANDLERS["intent.explain"]({ req = req })
     end
     -- 本地能力
     local local_handler = LOCAL_HANDLERS[intent]

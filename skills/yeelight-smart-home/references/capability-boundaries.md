@@ -9,3 +9,5 @@
 - 情景执行批量网关 fallback（/v1/thing/device/w/scenes）：暂未实现，无网关直接 blocked。
 - 商照项目（bizType=1）首期不支持（字段保留）。
 - 244 产品全量目录不内置（用 product.pedia.search 在线查询）。
+- HTTP 响应 body 上限 64KB：设备列表已改用 v2 分页端点（100/页，最多 10 页，失败回退 /v1/device/r/all）；
+  其他大响应（如海量消息）可能截断，用分页参数缩小范围。

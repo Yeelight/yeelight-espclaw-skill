@@ -110,6 +110,12 @@ M.routes["scene.execute"] = function(ctx)
     end
     local house_id, resp = common.require_house_id(req)
     if not house_id then return resp end
+    if (req.parameters and req.parameters.dryRun) == true then
+        return contract.success(req, "dry run only (scene not executed)", {
+            dryRun = true, sceneId = scene.id, sceneName = scene.name,
+            hint = "re-run without dryRun to execute",
+        })
+    end
     local endpoints = {
         "/v1/open/control/house/" .. util.url_escape(house_id) .. "/control/w/scenes/" .. util.url_escape(scene.id),
         "/v1/controll/device/w/scene/" .. util.url_escape(scene.id),

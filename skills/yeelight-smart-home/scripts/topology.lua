@@ -57,10 +57,30 @@ function M.load(opts)
         path = M.page_path_rooms(tostring(house_id)), method = "GET",
     }, house_id)
     if err_r then return false, nil, err_r end
-    local devices, err_d = fetch_rows({
-        path = "/v1/device/r/all", method = "POST", body = { houseId = tostring(house_id) },
-    }, house_id)
-    if err_d then return false, nil, err_d end
+    -- 设备用 v2 分页端点（/v1/device/r/all 无分页，大家庭可能超 64KB body 上限）
+    local devices = {}
+    local page = 1
+    local total = nil
+    while page <= 10 do
+        local ok_d, data_d, err_d = http.request({
+            method = "GET",
+            path = "/v2/thing/manage/house/" .. util.url_escape(tostring(house_id))
+                .. "/device/r/info/" .. page .. "/100",
+        })
+        if not ok_d then
+            -- 分页端点失败时回退 /v1/device/r/all
+            devices, err_d = fetch_rows({
+                path = "/v1/device/r/all", method = "POST", body = { houseId = tostring(house_id) },
+            }, house_id)
+            if err_d then return false, nil, err_d end
+            break
+        end
+        local rows_d = M.extract_rows(data_d)
+        for _, r in ipairs(rows_d) do devices[#devices + 1] = r end
+        total = tonumber(data_d.total or (data_d.data and data_d.data.total))
+        if total == nil or #devices >= total or #rows_d == 0 then break end
+        page = page + 1
+    end
     -- 灯组 / 情景为尽力而为：失败不阻塞拓扑
     local ok_g, groups = pcall(fetch_rows, {
         path = "/v2/thing/manage/house/" .. util.url_escape(tostring(house_id)) .. "/group/r/info/1/100",

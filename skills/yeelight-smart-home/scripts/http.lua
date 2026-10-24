@@ -20,6 +20,12 @@ function M.err(code, message, http_status)
     return { code = code, message = util.redact(tostring(message)), http_status = http_status }
 end
 
+-- bizType 仅允许 "0"/"1"（进入 HTTP header，防注入）
+function M.sanitize_biz_type(value)
+    if value == "1" or value == 1 then return "1" end
+    return "0"
+end
+
 -- 解析 cap_http_request 输出："HTTP <status>[...]\n<body>" 或 "Error: ..."
 local function parse_output(output)
     if type(output) ~= "string" then
@@ -90,7 +96,7 @@ function M.request(opts)
     if not host_ok then
         return false, nil, M.err("E_CONFIG", "base url not allowed")
     end
-    local url = base .. (opts.raw_path and opts.path or M.escape_path(opts.path or ""))
+    local url = base .. M.escape_path(opts.path or "")
     local headers = {
         ["Accept"] = "application/json",
         ["Accept-Language"] = "zh-CN",
@@ -103,7 +109,7 @@ function M.request(opts)
             headers["houseId"] = tostring(house)
             headers["house-id"] = tostring(house)
         end
-        headers["bizType"] = tostring(creds.biz_type or "0")
+        headers["bizType"] = M.sanitize_biz_type(creds.biz_type)
     end
     for k, v in pairs(opts.headers or {}) do headers[k] = tostring(v) end
 
@@ -173,32 +179,6 @@ end
 -- 分页路径片段：/r/info/{pageNo}/{pageSize}
 function M.page_path(prefix, pageNo, pageSize)
     return string.format("%s/r/info/%d/%d", prefix, pageNo or 1, pageSize or 100)
-end
-
-function M.get(opts) opts = util.merge(opts or {}, {}); opts.method = "GET"; return M.request(opts) end
-function M.post(opts) opts.method = "POST"; return M.request(opts) end
-function M.put(opts) opts.method = "PUT"; return M.request(opts) end
-function M.delete(opts) opts.method = "DELETE"; return M.request(opts) end
-
--- 分页拉取全部（上限 max_pages），rows 汇总
-function M.fetch_all_pages(opts, rows_key)
-    rows_key = rows_key or "rows"
-    local all = {}
-    local page = opts.pageNo or 1
-    local max_pages = opts.maxPages or 5
-    for _ = 1, max_pages do
-        local ok, data, err = M.request(opts)
-        if not ok then return false, nil, err end
-        local rows = data and data[rows_key] or (data and data.data and data.data[rows_key]) or {}
-        for _, r in ipairs(rows) do all[#all + 1] = r end
-        local total = tonumber(data.total or (data.data and data.data.total)) or #all
-        if #all >= total or #rows == 0 then
-            return true, { rows = all, total = total }, nil
-        end
-        page = page + 1
-        opts.pageNo = page
-    end
-    return true, { rows = all, total = #all }, nil
 end
 
 return M

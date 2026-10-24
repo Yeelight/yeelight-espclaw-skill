@@ -41,11 +41,18 @@ function M.normalize_request(args)
         intent = args.intent,
         sessionId = args.sessionId,
         homeRef = args.homeRef,
-        targets = type(args.targets) == "table" and args.targets or nil,
         parameters = type(args.parameters) == "table" and args.parameters or {},
         conversationContext = args.conversationContext,
         options = type(args.options) == "table" and args.options or {},
     }
+    -- targets：顶层优先；parameters.targets 作为批量入口（SKILL.md 契约）
+    local targets = nil
+    if type(args.targets) == "table" and #args.targets > 0 then
+        targets = args.targets
+    elseif type(req.parameters.targets) == "table" and #req.parameters.targets > 0 then
+        targets = req.parameters.targets
+    end
+    req.targets = targets
     return req
 end
 

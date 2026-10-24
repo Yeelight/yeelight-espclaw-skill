@@ -29,7 +29,7 @@ function M.create(opts)
         method = "POST",
         base = auth.account_base(opts.region),
         path = "/apis/account/user/scan-login/query/qrcode/" .. util.url_escape(device),
-        headers = { ["bizType"] = opts.biz_type or "0" },
+        headers = { ["bizType"] = http.sanitize_biz_type(opts.biz_type) },
         no_auth = true,
         body = {},
     })
@@ -53,7 +53,7 @@ function M.check(qr_code_id, opts)
         method = "POST",
         base = auth.account_base(opts.region),
         path = "/apis/account/user/scan-login/check/qrcode/" .. util.url_escape(qr_code_id),
-        headers = { ["bizType"] = opts.biz_type or "0" },
+        headers = { ["bizType"] = http.sanitize_biz_type(opts.biz_type) },
         no_auth = true,
         body = {},
     })
@@ -87,7 +87,7 @@ function M.save_login(info, opts)
         region = opts.region or "cn",
         house_id = info.houseId or token.houseId or opts.house_id,
         client_id = token.clientId or token.clientID or info.clientId,
-        biz_type = opts.biz_type or "0",
+        biz_type = http.sanitize_biz_type(opts.biz_type),
         device = opts.deviceId,
         house_name = opts.house_name,
     })

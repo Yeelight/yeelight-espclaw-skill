@@ -256,6 +256,31 @@ M.routes["home.sort.configure"] = function(ctx)
     return contract.success(req, i18n.t("ok", req.locale))
 end
 
-M.routes["home.property.set"] = M.routes["home.update"]
+-- home.property.set：家庭节点属性写（nodeType=5，对齐 Runtime 语义）
+M.routes["home.property.set"] = function(ctx)
+    local req = ctx.req
+    local params = req.parameters or {}
+    local prop = params.prop or params.propName
+    local value = params.value
+    if not prop or value == nil then
+        return contract.make(req, contract.STATUSES.CLARIFICATION,
+            i18n.t("missing_param", req.locale, "prop/value"))
+    end
+    local house_id, resp = common.require_house_id(req)
+    if not house_id then return resp end
+    if params.dryRun == true then
+        return contract.success(req, "dry run only",
+            { dryRun = true, plan = { nodeType = 5, nodeId = house_id, property = prop, value = value } })
+    end
+    local data, resp2 = common.call(req, {
+        method = "POST",
+        path = "/v1/open/control/house/" .. util.url_escape(house_id)
+            .. "/control/5/" .. util.url_escape(house_id) .. "/w/properties/"
+            .. util.url_escape(tostring(prop)),
+        body = { value = value },
+    })
+    if not data then return resp2 end
+    return contract.success(req, i18n.t("ok", req.locale), { property = prop })
+end
 
 return M

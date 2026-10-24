@@ -39,9 +39,14 @@ end
 function M.resolve_control_targets(req)
     local params = req.parameters or {}
     local explicit = req.targets
+    -- 防御：未经过 contract.normalize 的请求直接读 parameters.targets
+    if type(explicit) ~= "table" or #explicit == 0 then
+        explicit = params.targets
+    end
     local items = {}
     if type(explicit) == "table" and #explicit > 0 then
         local ENTITY_NODE_TYPE = { room = 1, device = 2, area = 3, group = 4, home = 5 }
+        local name_only = {}
         for _, t in ipairs(explicit) do
             if type(t) == "table" and t.id then
                 local node_type = tonumber(t.nodeType)
@@ -53,6 +58,33 @@ function M.resolve_control_targets(req)
                     nodeType = node_type or M.NODE_TYPE.device,
                     name = tostring(t.name or t.id),
                 }
+            elseif type(t) == "table" and t.name then
+                name_only[#name_only + 1] = t
+            end
+        end
+        -- 仅带 name 的目标：按名称在拓扑中匹配
+        if #name_only > 0 then
+            local ok_t, topo, terr = topology.load({})
+            if not ok_t then return { ok = false, resp = common.err_response(req, terr) } end
+            for _, t in ipairs(name_only) do
+                local pool = topo.devices
+                if t.entityType == "room" then pool = topo.rooms end
+                if t.entityType == "group" then pool = topo.groups end
+                local m = require("name_match").match_one(t.name, pool or {})
+                if m.status == "exact" then
+                    local node_type = tonumber(t.nodeType)
+                    if not node_type and t.entityType then
+                        node_type = ENTITY_NODE_TYPE[t.entityType:lower()]
+                    end
+                    items[#items + 1] = {
+                        id = tostring(m.item.id),
+                        nodeType = node_type or M.NODE_TYPE.device,
+                        name = m.item.name,
+                    }
+                else
+                    return { ok = false, resp = contract.make(req, contract.STATUSES.CLARIFICATION,
+                        i18n.t("not_found", req.locale, tostring(t.name))) }
+                end
             end
         end
         if #items > 0 then return { ok = true, items = items } end
@@ -443,6 +475,7 @@ M.routes["node.property.toggle"] = function(ctx)
     return contract.success(req, i18n.t("light_set", req.locale, "toggle"))
 end
 
+-- node.action.execute：POST /v1/controll/device/{nt}/{id}/w/actions/{action}
 M.routes["node.action.execute"] = function(ctx)
     local req = ctx.req
     local params = req.parameters or {}
@@ -450,11 +483,21 @@ M.routes["node.action.execute"] = function(ctx)
     if not action then return missing(req, "action") end
     local resolved = M.resolve_control_targets(req)
     if not resolved.ok then return resolved.resp end
-    local house_id, resp = common.require_house_id(req)
-    if not house_id then return resp end
+    local body = {}
+    local payload = params.payload or params.args or params.params
+    if type(payload) == "table" then
+        for k, v in pairs(payload) do body[k] = v end
+    end
+    if params.duration ~= nil then body.duration = params.duration end
+    if params.delay ~= nil then body.delay = params.delay end
     local failed = {}
     for _, item in ipairs(resolved.items) do
-        local ok = M.write_property(req, item, action, params.args or params.params or {}, "set")
+        local ok = require("http").request({
+            method = "POST",
+            path = "/v1/controll/device/" .. item.nodeType .. "/" .. util.url_escape(item.id)
+                .. "/w/actions/" .. util.url_escape(tostring(action)),
+            body = body,
+        })
         if not ok then failed[#failed + 1] = item.name end
     end
     if #failed > 0 then
@@ -466,7 +509,8 @@ end
 
 -- ---- state / device / entity 读 ----
 local function read_device_props(req, item)
-    return write_verify.read_properties(M.NODE_TYPE.device, item.id,
+    -- 按目标实际 nodeType 读：设备走 /v1/controll/device，其余走 house 节点端点
+    return write_verify.read_properties(item.nodeType or M.NODE_TYPE.device, item.id,
         { house_id = common.require_house_id(req) })
 end
 
@@ -501,7 +545,7 @@ end
 
 M.routes["entity.list"] = function(ctx)
     local req = ctx.req
-    local ok, topo, terr = topology.load({})
+    local ok, topo, terr = topology.load({ house_id = contract.param(req, "houseId") })
     if not ok then return common.err_response(req, terr) end
     local rows = topo.devices
     local summary = common.top_n(rows)
@@ -743,17 +787,23 @@ M.routes["device.slot.create"] = function(ctx)
         i18n.t("not_supported", ctx.req.locale, "device.slot.create"))
 end
 
--- lighting.flow.execute：灯效/流（云端 action）
+-- lighting.flow.execute：POST /v1/controll/device/{nt}/{id}/w/flow（body = flow payload）
 M.routes["lighting.flow.execute"] = function(ctx)
     local req = ctx.req
     local params = req.parameters or {}
-    local flow = params.flow or params.flowName
-    if not flow then return missing(req, "flow") end
+    local flow = params.flow or params.flowName or params.payload
+    if flow == nil then return missing(req, "flow") end
     local resolved = M.resolve_control_targets(req)
     if not resolved.ok then return resolved.resp end
+    local body = type(flow) == "table" and flow or { name = tostring(flow) }
+    if params.duration ~= nil then body.duration = params.duration end
     local failed = {}
     for _, item in ipairs(resolved.items) do
-        local ok = M.write_property(req, item, "flow", params.args or { name = flow }, "set")
+        local ok = require("http").request({
+            method = "POST",
+            path = "/v1/controll/device/" .. item.nodeType .. "/" .. util.url_escape(item.id) .. "/w/flow",
+            body = body,
+        })
         if not ok then failed[#failed + 1] = item.name end
     end
     if #failed > 0 then
