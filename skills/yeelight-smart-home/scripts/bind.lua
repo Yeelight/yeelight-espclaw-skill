@@ -8,6 +8,7 @@ local M = {}
 M.POLL_INTERVAL_MS = 3000
 M.POLL_MAX_MS = 180000
 
+-- 设备号需 MAC 形态（App 扫码协议 cli&MAC&qrCodeId 依赖）；缺省生成随机 MAC
 function M.ensure_device_id(opts)
     local device = opts and opts.deviceId
     if not device or device == "" then
@@ -15,9 +16,31 @@ function M.ensure_device_id(opts)
         device = creds and creds.device
     end
     if not device or device == "" then
-        device = util.random_id("espclaw-", 10)
+        math.randomseed((system and system.millis and system.millis() or os.time() * 1000) % 2147483647)
+        device = string.format("F8:24:41:%02X:%02X:%02X",
+            math.random(0, 255), math.random(0, 255), math.random(0, 255))
     end
-    return device
+    return M.normalize_device_mac(device)
+end
+
+-- MAC 规范化：12 位裸 hex 插冒号，统一大写（对齐 Runtime NormalizeDeviceMAC）
+function M.normalize_device_mac(raw)
+    local trimmed = util.trim(tostring(raw or ""))
+    local upper = trimmed:upper()
+    local bare = upper:gsub(":", "")
+    if #bare == 12 and bare:match("^%x+$") then
+        return bare:gsub("(%x%x)(%x%x)(%x%x)(%x%x)(%x%x)(%x%x)", "%1:%2:%3:%4:%5:%6")
+    end
+    if upper:match("^%x%x(:%x%x){5}$") then
+        return upper
+    end
+    -- 非 MAC 形态：原样保留（测试/自定义 id）
+    return trimmed
+end
+
+-- 二维码内容：cli&MAC&qrCodeId（对齐 Runtime BuildQRPayload）
+function M.build_qr_payload(qr_code_id, device)
+    return "cli&" .. M.normalize_device_mac(device) .. "&" .. tostring(qr_code_id)
 end
 
 -- 创建二维码。返回 ok, info|err
@@ -40,8 +63,8 @@ function M.create(opts)
         status = d.status,
         expireAt = d.expireAt,
         deviceId = device,
-        -- qrContent 为 App 扫码内容；显示层据此渲染二维码
-        qrContent = d.qrContent or d.url or d.qrCodeId,
+        -- App 扫码内容 = cli&MAC&qrCodeId（云端无 qrContent 字段，本地构造）
+        qrContent = M.build_qr_payload(d.qrCodeId, device),
         raw = d,
     }, nil
 end

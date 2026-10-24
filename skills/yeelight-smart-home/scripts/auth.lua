@@ -14,21 +14,10 @@ M.REGIONS = {
     dev = "http://api-dev.yeedev.com",
 }
 
--- storage 读写封装（测试环境注入 mock storage；均返回 ok, content）
-local function read_file(rel)
-    if not storage then return false, "no storage" end
-    return storage.read_file(rel)
-end
-
-local function write_file(rel, content)
-    if not storage then return false, "no storage" end
-    if storage.mkdir then storage.mkdir(M.DATA_DIR) end
-    return storage.write_file(rel, content)
-end
-
+-- 存储统一走 util 的固件保真封装（pcall + get_root_dir/join_path）
 function M.load()
-    local ok, content = read_file(M.CRED_FILE)
-    if not ok or type(content) ~= "string" or content == "" then return nil end
+    local content = util.sread(M.CRED_FILE)
+    if not content then return nil end
     local okd, data = pcall(function() return json.decode(content) end)
     if not okd or type(data) ~= "table" then return nil end
     return data
@@ -37,13 +26,13 @@ end
 function M.save(creds)
     creds = creds or {}
     creds.updatedAt = util.now_ms()
-    local ok, err = write_file(M.CRED_FILE, json.encode(creds))
-    if not ok then return nil, err end
+    local ok = util.swrite(M.CRED_FILE, json.encode(creds))
+    if not ok then return nil, "storage write failed" end
     return creds
 end
 
 function M.clear()
-    write_file(M.CRED_FILE, "")
+    util.swrite(M.CRED_FILE, "")
     return true
 end
 

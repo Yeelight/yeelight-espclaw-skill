@@ -29,13 +29,29 @@ local function valid_request(raw)
     return nil
 end
 
+local function truncate_utf8(s, max_bytes)
+    if type(s) ~= "string" or #s <= max_bytes then return s end
+    -- s:sub(1, cut) 为完整字符 ⇔ 第 cut+1 字节不是续字节（0x80-0xBF）
+    local cut = max_bytes
+    while cut > 0 do
+        local next_byte = string.byte(s, cut + 1)
+        if next_byte and next_byte >= 0x80 and next_byte < 0xC0 then
+            cut = cut - 1
+        else
+            break
+        end
+    end
+    if cut <= 0 then return "" end
+    return s:sub(1, cut) .. "…"
+end
+
 -- 规范化请求；失败返回 nil, err
 function M.normalize_request(args)
     local err = valid_request(args)
     if err then return nil, err end
     local req = {
         contractVersion = M.CONTRACT_VERSION,
-        requestId = tostring(args.requestId or util.random_id("req-")),
+        requestId = truncate_utf8(tostring(args.requestId or util.random_id("req-")), 64),
         locale = args.locale or "zh-CN",
         utterance = args.utterance or "",
         intent = args.intent,
@@ -68,22 +84,6 @@ local function truncate_json(result)
     end
     summary.truncated = true
     return summary
-end
-
-local function truncate_utf8(s, max_bytes)
-    if type(s) ~= "string" or #s <= max_bytes then return s end
-    -- s:sub(1, cut) 为完整字符 ⇔ 第 cut+1 字节不是续字节（0x80-0xBF）
-    local cut = max_bytes
-    while cut > 0 do
-        local next_byte = string.byte(s, cut + 1)
-        if next_byte and next_byte >= 0x80 and next_byte < 0xC0 then
-            cut = cut - 1
-        else
-            break
-        end
-    end
-    if cut <= 0 then return "" end
-    return s:sub(1, cut) .. "…"
 end
 
 -- clarification 体积防线：candidates 投影精简，整体超限退化为 question

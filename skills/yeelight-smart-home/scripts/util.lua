@@ -127,6 +127,50 @@ function M.redact(s)
              :gsub('"authorization"%s*:%s*"[^"]+"', '"authorization":"***"'))
 end
 
+-- ---- storage 固件保真封装 ----
+-- 固件 storage.read_file：文件不存在时抛 Lua error；成功仅返回 content 单值。
+-- 路径必须由 storage.get_root_dir() + storage.join_path() 构造（不自动加前缀）。
+-- 本层全部 pcall 包裹，永不向调用方抛错。
+local S_DATA_DIR = "yeelight-smart-home"
+
+local function storage_root()
+    if not storage or not storage.get_root_dir then return nil end
+    local ok, root = pcall(storage.get_root_dir)
+    if not ok or type(root) ~= "string" or root == "" then return nil end
+    return root
+end
+
+function M.sjoin(...)
+    local root = storage_root()
+    if not root or not storage.join_path then return nil end
+    local ok, joined = pcall(storage.join_path, root, ...)
+    if not ok or type(joined) ~= "string" or joined == "" then return nil end
+    return joined
+end
+
+-- 读文件；不存在/失败返回 nil
+function M.sread(rel)
+    local path = M.sjoin(rel)
+    if not path then return nil end
+    if storage.exists then
+        local ok_e, exists = pcall(storage.exists, path)
+        if not ok_e or not exists then return nil end
+    end
+    local ok, content = pcall(storage.read_file, path)
+    if not ok or type(content) ~= "string" or content == "" then return nil end
+    return content
+end
+
+-- 写文件；失败返回 false
+function M.swrite(rel, content)
+    local dir = M.sjoin(S_DATA_DIR)
+    if dir and storage.mkdir then pcall(storage.mkdir, dir) end
+    local path = M.sjoin(rel)
+    if not path then return false end
+    local ok, err = pcall(storage.write_file, path, content)
+    return ok == true, err
+end
+
 -- 随机 ID（绑定用 deviceId 等）；同一次脚本执行只播种一次
 local seeded = false
 function M.random_id(prefix, n)

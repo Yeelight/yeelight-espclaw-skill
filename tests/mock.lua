@@ -5,15 +5,31 @@ local M = {}
 
 function M.setup_globals()
     if not json then _G.json = json_shim end
-    -- storage mock（内存）
+    -- storage mock（固件保真语义）：
+    -- read_file 文件不存在时抛 error、成功仅返回 content 单值；
+    -- 路径需 get_root_dir + join_path 构造。
     local files = {}
     _G.storage = {
+        get_root_dir = function() return "/data" end,
+        join_path = function(...)
+            local parts = {}
+            for i = 1, select("#", ...) do parts[#parts + 1] = tostring(select(i, ...)) end
+            return table.concat(parts, "/")
+        end,
+        exists = function(path) return files[path] ~= nil end,
         mkdir = function() return true end,
-        read_file = function(rel) return files[rel] ~= nil, files[rel] end,
-        write_file = function(rel, content) files[rel] = content; return true end,
+        read_file = function(path)
+            if files[path] == nil then
+                error("cannot open file for reading: " .. tostring(path))
+            end
+            return files[path]
+        end,
+        write_file = function(path, content) files[path] = content; return true end,
         _files = files,
     }
-    _G.storage_reset = function() files = {}; _G.storage._files = files end
+    _G.storage_reset = function()
+        for k in pairs(files) do files[k] = nil end
+    end
     _G.delay = { delay_ms = function() end }
     local base = os.time() * 1000
     local offset = 0

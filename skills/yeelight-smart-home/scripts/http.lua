@@ -7,6 +7,19 @@ local M = {}
 
 M.DEFAULT_TIMEOUT_MS = 15000
 M.DEFAULT_MAX_BODY = 65535
+-- 同步 lua_run_script 60s 上限：预留响应时间，HTTP 链路预算 45s
+M.BUDGET_MS = 45000
+M._budget_deadline = nil
+
+-- invoke 入口设置；每次 lua_run_script 新建 Lua state，天然隔离
+function M.start_budget(now_ms)
+    M._budget_deadline = (now_ms or 0) + M.BUDGET_MS
+end
+
+local function budget_left_ms()
+    if not M._budget_deadline then return nil end
+    return M._budget_deadline - util.now_ms()
+end
 
 local ALLOW_HOSTS = {
     ["api.yeelight.com"] = true,
@@ -132,10 +145,20 @@ function M.request(opts)
     }
     if body_str then cap_opts.body = body_str end
     if opts.save_path then cap_opts.save_path = opts.save_path end
+    -- 预算护栏：剩余时间不足以完成本次请求时快速失败，避免触发 60s 同步硬超时
+    local left = budget_left_ms()
+    if left ~= nil and left < (cap_opts.timeout_ms or M.DEFAULT_TIMEOUT_MS) then
+        cap_opts.timeout_ms = math.max(1000, math.floor(left))
+        if left <= 1000 then
+            return false, nil, M.err("E_TIMEOUT_BUDGET", "time budget exhausted")
+        end
+    end
 
-    local ok, output, cap_err = capability.call("http_request", cap_opts)
+    -- 显式扩大 capability 输出缓冲（默认 64KB：HTTP 状态行 + 64KB body 会溢出截断）
+    local cap_ok, output, cap_err = capability.call("http_request", cap_opts, { max_output_bytes = 131072 })
+    local ok, output2, cap_err2 = cap_ok, output, cap_err
     if not ok then
-        return false, nil, M.err("E_NETWORK", cap_err or output or "capability call failed")
+        return false, nil, M.err("E_NETWORK", output2 or cap_err2 or "capability call failed")
     end
     local parsed, perr = parse_output(output)
     if not parsed then
@@ -165,12 +188,25 @@ function M.request(opts)
     return true, M.unwrap(data), nil, { http_status = parsed.status, data = data }
 end
 
--- 路径参数 escape（保留 / 与 query string 的 ? & =）
+-- 路径参数 escape（幂等：已转义的 %XX 序列不重复转义；保留 / 与 query 的 ? & =）
 function M.escape_path(path)
     local base, query = path:match("^([^?]*)%??(.*)$")
-    base = base:gsub("[^%w%-%_%.~/]", function(c)
-        return string.format("%%%02X", string.byte(c))
-    end)
+    local out = {}
+    local i = 1
+    while i <= #base do
+        local c = base:sub(i, i)
+        if c == "%" and base:sub(i + 1, i + 2):match("^%x%x$") then
+            out[#out + 1] = base:sub(i, i + 2)
+            i = i + 3
+        elseif c:match("^[%w%-%_%.~/]$") then
+            out[#out + 1] = c
+            i = i + 1
+        else
+            out[#out + 1] = string.format("%%%02X", string.byte(c))
+            i = i + 1
+        end
+    end
+    base = table.concat(out)
     if query and query ~= "" then
         return base .. "?" .. query
     end

@@ -8,19 +8,18 @@ M.RECO_FILE = "yeelight-smart-home/recommendation.json"
 M.LESSON_FILE = "yeelight-smart-home/lesson.json"
 M.MAX_ENTRIES = 50
 
+local util = require("util")
+
 local function read_json(path)
-    if not storage then return nil end
-    local ok, content = storage.read_file(path)
-    if not ok or type(content) ~= "string" or content == "" then return {} end
+    local content = util.sread(path)
+    if not content then return {} end
     local okd, data = pcall(function() return json.decode(content) end)
     if not okd or type(data) ~= "table" then return {} end
     return data
 end
 
 local function write_json(path, data)
-    if not storage then return false end
-    if storage.mkdir then storage.mkdir("yeelight-smart-home") end
-    return storage.write_file(path, json.encode(data))
+    return util.swrite(path, json.encode(data))
 end
 
 -- ---- memory ----
@@ -68,12 +67,8 @@ function M.memory_forget(query)
 end
 
 function M.memory_set_paused(paused)
-    local list = read_json(M.MEMORY_FILE)
     local flag = { paused = paused, at = util.now_ms() }
-    -- 单独存暂停标记于同文件 meta（首元素特殊）——简化：写独立键由调用方读
-    write_json("yeelight-smart-home/memory_pause.json", flag)
-    list = nil
-    return true
+    return write_json("yeelight-smart-home/memory_pause.json", flag)
 end
 
 function M.memory_is_paused()

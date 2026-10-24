@@ -36,6 +36,7 @@ runner.load("test_catalog_coverage")
 runner.load("test_endpoints")
 runner.load("test_review2")
 runner.load("test_review3")
+runner.load("test_review4")
 
 if not mock.summary() then
     passed = false
